@@ -3,22 +3,23 @@ Central configuration for the BTC trading bot.
 All settings in one place — switch between testnet and live here.
 """
 
+import os
+
 # ── Exchange Mode ─────────────────────────────────────────────
 MODE = "testnet"  # "testnet" or "live"
 
 # Binance Testnet API keys
 # Get yours at: https://testnet.binance.vision/
-TESTNET_API_KEY = ""
-TESTNET_API_SECRET = ""
+TESTNET_API_KEY = os.environ.get("TESTNET_API_KEY", "")
+TESTNET_API_SECRET = os.environ.get("TESTNET_API_SECRET", "")
 
 # Real Binance API keys (only used when MODE = "live")
-LIVE_API_KEY = ""
-LIVE_API_SECRET = ""
+LIVE_API_KEY = os.environ.get("LIVE_API_KEY", "")
+LIVE_API_SECRET = os.environ.get("LIVE_API_SECRET", "")
 
 # ── Telegram Notifications ────────────────────────────────────
-# Follow setup instructions in src/notifier.py to get these
-TELEGRAM_BOT_TOKEN = ""
-TELEGRAM_CHAT_ID = ""
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── Symbol ────────────────────────────────────────────────────
 SYMBOL = "BTC/USDT"
