@@ -1,5 +1,5 @@
 """
-Telegram notifications — sends alerts to your phone when the bot trades.
+Telegram notifications — sends comprehensive alerts to your phone every cycle.
 
 Setup (one-time, 2 minutes):
   1. Open Telegram, search for @BotFather
@@ -10,6 +10,7 @@ Setup (one-time, 2 minutes):
   6. Find your chat_id in the response → paste in config.py
 """
 import requests
+from datetime import datetime, timezone
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 
@@ -30,6 +31,94 @@ def send_telegram(message):
             print(f"  [WARN] Telegram send failed: {resp.text}")
     except Exception as e:
         print(f"  [WARN] Telegram error: {e}")
+
+
+def notify_bot_started():
+    """Notify when the bot starts running."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    send_telegram(
+        f"🤖 *BTC Trading Bot Started*\n"
+        f"Paper trading mode active.\n"
+        f"Monitoring every 15 minutes.\n"
+        f"Time: {now}"
+    )
+
+
+def notify_cycle_report(
+    price, p_up, exp_return, action, reason,
+    balance, position, daily_pnl, daily_trades,
+    size_usd=None, stop_loss=None, take_profit=None,
+    entry_price=None, unrealized_pnl_pct=None, bars_held=None,
+):
+    """
+    Send a full status report every 15-minute cycle.
+    This is the main notification — tells you EVERYTHING.
+    """
+    now = datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+    # Action emoji
+    if action == "BUY":
+        action_emoji = "🟢"
+    elif action == "SELL":
+        action_emoji = "🔴"
+    else:
+        action_emoji = "⏸"
+
+    # Build the message
+    lines = []
+    lines.append(f"{'─' * 20}")
+    lines.append(f"⏰ *{now} — Cycle Report*")
+    lines.append(f"{'─' * 20}")
+
+    # ── Market ──
+    lines.append(f"")
+    lines.append(f"📊 *Market*")
+    lines.append(f"BTC Price: \\${price:,.2f}")
+
+    # ── Model Prediction ──
+    lines.append(f"")
+    lines.append(f"🧠 *Model Prediction*")
+    lines.append(f"P(up): {p_up:.4f}")
+    lines.append(f"E[return]: {exp_return * 100:+.4f}%")
+
+    # ── Decision ──
+    lines.append(f"")
+    lines.append(f"{action_emoji} *Decision: {action}*")
+    lines.append(f"Reason: {reason}")
+
+    # ── Trade Details (only if BUY or SELL) ──
+    if action in ("BUY", "SELL") and size_usd is not None:
+        lines.append(f"")
+        lines.append(f"💼 *Trade Details*")
+        lines.append(f"Size: \\${size_usd:.2f}")
+        if stop_loss:
+            lines.append(f"Stop Loss: \\${stop_loss:,.2f}")
+        if take_profit:
+            lines.append(f"Take Profit: \\${take_profit:,.2f}")
+
+    # ── Open Position ──
+    lines.append(f"")
+    if position and entry_price:
+        lines.append(f"📌 *Open Position*")
+        lines.append(f"Side: {position.upper()}")
+        lines.append(f"Entry: \\${entry_price:,.2f}")
+        if unrealized_pnl_pct is not None:
+            pnl_emoji = "📈" if unrealized_pnl_pct >= 0 else "📉"
+            lines.append(f"Unrealized PnL: {pnl_emoji} {unrealized_pnl_pct:+.2f}%")
+        if bars_held is not None:
+            lines.append(f"Bars Held: {bars_held}/8")
+    else:
+        lines.append(f"📌 *Position: FLAT* (no open trade)")
+
+    # ── Account ──
+    lines.append(f"")
+    lines.append(f"💰 *Account*")
+    lines.append(f"Balance: \\${balance:,.2f} USDT")
+    pnl_emoji = "📈" if daily_pnl >= 0 else "📉"
+    lines.append(f"Daily PnL: {pnl_emoji} \\${daily_pnl:+.2f}")
+    lines.append(f"Trades Today: {daily_trades}")
+
+    send_telegram("\n".join(lines))
 
 
 def notify_trade_opened(action, price, size_usd, stop_loss, take_profit, p_up, exp_return):
@@ -56,11 +145,6 @@ def notify_trade_closed(side, entry_price, exit_price, pnl_pct, pnl_usd, bars_he
     send_telegram(msg)
 
 
-def notify_bot_started():
-    """Notify when the bot starts running."""
-    send_telegram("🤖 *BTC Trading Bot Started*\nPaper trading mode active. Monitoring every 15 minutes.")
-
-
 def notify_daily_summary(daily_pnl, daily_trades, balance):
     """Send end-of-day summary."""
     emoji = "📈" if daily_pnl >= 0 else "📉"
@@ -73,11 +157,6 @@ def notify_daily_summary(daily_pnl, daily_trades, balance):
     send_telegram(msg)
 
 
-def notify_hold(price, p_up, reason):
-    """Send a status update when the bot decides to HOLD."""
-    msg = (
-        f"⏸ *HOLD* @ \\${price:,.2f}\n"
-        f"P(up): {p_up:.3f}\n"
-        f"Reason: {reason}"
-    )
-    send_telegram(msg)
+def notify_error(error_msg):
+    """Notify when something goes wrong so you know the bot is struggling."""
+    send_telegram(f"⚠️ *Bot Error*\n{error_msg}")

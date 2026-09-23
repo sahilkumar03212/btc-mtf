@@ -24,7 +24,10 @@ from decision import decide
 from executor import Executor
 from position_manager import PositionManager
 from trade_logger import log_decision, log_trade
-from notifier import notify_bot_started, notify_trade_opened, notify_trade_closed, notify_daily_summary, notify_hold
+from notifier import (
+    notify_bot_started, notify_trade_opened, notify_trade_closed,
+    notify_daily_summary, notify_cycle_report, notify_error,
+)
 
 
 def print_banner():
@@ -48,6 +51,7 @@ def run_one_cycle(exchange, predictor, executor, pm):
     current_price = executor.get_current_price()
     if current_price is None:
         print("  [SKIP] Could not get current price")
+        notify_error("Could not get current BTC price from Binance")
         return
     print(f"  BTC price: ${current_price:,.2f}")
 
@@ -81,6 +85,7 @@ def run_one_cycle(exchange, predictor, executor, pm):
     account_balance = balance["total"]
     if pm.is_circuit_breaker_active(account_balance):
         print(f"  [CIRCUIT BREAKER] Daily loss limit reached. Skipping.")
+        notify_error(f"Circuit breaker active! Daily loss limit reached. Balance: \\${account_balance:,.2f}")
         return
 
     # ── 4. Fetch live data and compute features ──
@@ -112,9 +117,6 @@ def run_one_cycle(exchange, predictor, executor, pm):
 
     # Log every decision
     log_decision(bar_ts, current_price, p_up, exp_return, decision_result)
-    
-    if action == "HOLD":
-        notify_hold(current_price, p_up, decision_result["reason"])
 
     # ── 7. Execute trade ──
     if action == "BUY":
@@ -161,7 +163,36 @@ def run_one_cycle(exchange, predictor, executor, pm):
                 )
                 print(f"  ✓ Closed LONG: PnL = {trade_result['pnl_pct']:+.2f}%")
 
-    # ── 8. Status summary ──
+    # ── 8. Compute position info for report ──
+    unrealized_pnl_pct = None
+    pos_entry_price = None
+    pos_bars_held = None
+    if pm.has_position:
+        pos_entry_price = pm.entry_price
+        pos_bars_held = pm.bars_held
+        if pm.position == "long" and pm.entry_price:
+            unrealized_pnl_pct = ((current_price - pm.entry_price) / pm.entry_price) * 100
+
+    # ── 9. Send full Telegram report ──
+    notify_cycle_report(
+        price=current_price,
+        p_up=p_up,
+        exp_return=exp_return,
+        action=action,
+        reason=decision_result["reason"],
+        balance=account_balance,
+        position=pm.position,
+        daily_pnl=pm.daily_pnl,
+        daily_trades=pm.daily_trades,
+        size_usd=decision_result.get("size_usd"),
+        stop_loss=decision_result.get("stop_loss"),
+        take_profit=decision_result.get("take_profit"),
+        entry_price=pos_entry_price,
+        unrealized_pnl_pct=unrealized_pnl_pct,
+        bars_held=pos_bars_held,
+    )
+
+    # ── 10. Status summary (terminal) ──
     print(f"  Balance: ${account_balance:,.2f} USDT")
     print(f"  Position: {pm.position or 'flat'}")
     print(f"  Daily PnL: ${pm.daily_pnl:+.2f} ({pm.daily_trades} trades today)")
