@@ -4,8 +4,12 @@ Render's free tier requires a web service that binds to a port.
 This script runs a lightweight Flask server and starts the trading bot in a background thread.
 """
 import os
+import sys
 import threading
 from flask import Flask, jsonify
+
+# Add the src/ directory to the Python path so it can find bot.py
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import bot  # Imports your existing bot.py
 
 app = Flask(__name__)
