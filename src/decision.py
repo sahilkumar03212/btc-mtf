@@ -4,16 +4,19 @@ based on model predictions.
 
 Strategy: use the classifier probability directly.
 If P(up) > threshold → BUY. If P(up) < (1 - threshold) → SELL.
-The regressor magnitude is used only for position sizing.
+SL/TP use fixed, realistic percentages for 15m–2h BTC trades.
 """
 from config import (
     P_UP_BUY_THRESHOLD,
     P_UP_SELL_THRESHOLD,
     MAX_POSITION_PCT,
-    STOP_LOSS_MULTIPLIER,
-    TAKE_PROFIT_MULTIPLIER,
     ROUND_TRIP_COST,
 )
+
+# ── Fixed risk-management parameters ──────────────────────────
+# These are realistic for 15m–2h BTC swing trades
+SL_PCT = 0.01    # 1.0% stop loss
+TP_PCT = 0.02    # 2.0% take profit  (2:1 reward-to-risk ratio)
 
 
 def decide(p_up, expected_return, current_price, account_balance, has_position):
@@ -54,17 +57,13 @@ def decide(p_up, expected_return, current_price, account_balance, has_position):
     # Position sizing — fixed fraction of account
     size_usd = account_balance * MAX_POSITION_PCT
 
-    # Stop-loss and take-profit based on ATR-like distance
-    # Use round-trip cost as minimum distance
-    sl_dist = max(abs(expected_return), ROUND_TRIP_COST) * STOP_LOSS_MULTIPLIER
-    tp_dist = max(abs(expected_return), ROUND_TRIP_COST) * TAKE_PROFIT_MULTIPLIER
-
+    # Stop-loss and take-profit — fixed realistic percentages
     if action == "BUY":
-        stop_loss = current_price * (1 - sl_dist)
-        take_profit = current_price * (1 + tp_dist)
+        stop_loss = current_price * (1 - SL_PCT)
+        take_profit = current_price * (1 + TP_PCT)
     else:
-        stop_loss = current_price * (1 + sl_dist)
-        take_profit = current_price * (1 - tp_dist)
+        stop_loss = current_price * (1 + SL_PCT)
+        take_profit = current_price * (1 - TP_PCT)
 
     return {
         "action": action,
