@@ -1,0 +1,19 @@
+[Unit]
+Description=BTC Trading Bot (Paper Trading)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/btc-mtf
+ExecStart=/home/ubuntu/btc-mtf/venv/bin/python3 src/bot.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

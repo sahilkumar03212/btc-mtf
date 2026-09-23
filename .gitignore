@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# OS
+.DS_Store
+
+# Data & Logs (Too large for GitHub, Render doesn't need them)
+data/*.parquet
+data/*.csv
+data/*.zip
+logs/*.csv
+logs/*.json
+
+# Model Predictions (We only need the .json models, not the large parquet predictions)
+models/*.parquet
+models/*.csv

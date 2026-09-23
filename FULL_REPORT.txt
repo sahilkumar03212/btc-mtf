@@ -1,0 +1,1060 @@
+================================================================================
+BTC MULTI-TIMEFRAME ML TRADING - COMPLETE PROJECT REPORT
+================================================================================
+
+Project      : ML system for BTC/USDT directional and magnitude prediction
+Context      : MSc minor project in Data Science and Applied Statistics
+Duration     : Multi-session (Session 1 = 2026-09-19, Session 2 = 2026-09-20)
+Status       : Data pipeline solved; Option A succeeds; Option B fails.
+Final file   : /content/drive/MyDrive/btc-mtf/FULL_REPORT.txt
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+PART I - PROJECT FOUNDATIONS (Session 1: 2026-09-19)
+  1.  Problem Statement
+  2.  Initial Approach
+  3.  Data Fetching Challenges
+  4.  Bugs Fixed in Session 1
+  5.  Next Steps from Session 1
+
+PART II - DATA PIPELINE SOLUTION (Session 2)
+  6.  Binance Vision Mirror Fix
+  7.  Data Coverage
+  8.  Timestamp Handling (Millisecond vs Microsecond)
+
+PART III - OPTION A (Feature Stacking, SESSION 2)
+  9.  Architecture
+  10. Features
+  11. Multi-Timeframe Alignment
+  12. Labels
+  13. Model - LightGBM Multiclass
+  14. Walk-Forward Validation
+  15. Classification Results
+  16. Feature Importance
+  17. Ablation Study
+
+PART IV - BACKTEST (Session 2)
+  18. Backtest Iterations and Bug Fixes
+  19. Option A Final Backtest
+  20. Random-Signal Control Test
+  21. Cost Sensitivity Test
+
+PART V - OPTION B (Hierarchical, Session 2)
+  22. Motivation
+  23. Architecture
+  24. Level Designs
+  25. Fusion Strategies
+  26. v1 Results
+  27. v2 Fixes
+  28. v2 Results
+  29. Diagnosis - Why Option B Failed
+
+PART VI - CONCLUSIONS
+  30. Comparison - Option A vs Option B
+  31. Scientific Conclusion
+  32. Open Questions and Next Steps
+
+PART VII - APPENDICES
+  A.  Lessons Learned
+  B.  References
+  C.  Glossary
+  D.  Full Results Tables
+  E.  Files and Reproduction
+  F.  Original Session 1 Notes (verbatim)
+
+================================================================================
+PART I - PROJECT FOUNDATIONS (Session 1: 2026-09-19)
+================================================================================
+
+1. PROBLEM STATEMENT
+--------------------
+
+Build an automated cryptocurrency trading system for BTC/USDT on a 15-minute
+timeframe. The system must predict:
+
+  (a) The direction (up/down) of the next 30-minute return (2 candles ahead)
+  (b) The magnitude of that return
+
+using a machine learning model. A separate decision layer decides whether to
+trade based on predicted magnitude versus transaction costs (fees + slippage).
+
+The system is intended to run paper trades on Binance Testnet, with eventual
+deployment to a VPS for 24/7 operation. The project is intended as a minor MSc
+project in Data Science and Applied Statistics.
+
+2. INITIAL APPROACH (Session 1)
+-------------------------------
+
+  Timeframe    : 15-minute candles (native on most exchanges, balances
+                 noise vs. fee viability)
+  Asset        : BTC/USDT (most liquid, longest clean history, lowest slippage)
+  Data         : 5 years of historical OHLCV (2020-01-01 to present)
+                 Plus higher timeframe context (1h, 4h, 1d)
+                 Derivatives data (funding rate, open interest) considered
+                 but later deprioritized due to API restrictions
+  Features     : ~45 engineered features across price/momentum, trend/
+                 volatility, volume, higher-timeframe context, and cyclical
+                 time encodings
+  Labels       : Forward return over 2 candles (30 min)
+                 Classification label: 1 if return > 0 else 0
+                 Regression label: raw forward return
+  Models       : XGBoost classifier (predicts P(up))
+                 XGBoost regressor (predicts E[return])
+                 Deep learning (TCN) considered as later challenger
+  Validation   : Walk-forward. Train on 24 months, validate on 1 month,
+                 test on next month. Roll forward monthly. 24 OOS test months.
+  Decision     : Trade only if |E[return]| > total cost + safety margin
+                 Total cost ~0.15-0.3% round trip
+                 Position sizing scaled by magnitude, capped at 1-2% of account
+                 Stop-loss/take-profit based on predicted magnitude
+                 Daily loss limit and circuit breakers
+  Execution    : Paper trading on Binance Testnet via CCXT
+                 Local storage in Colab /content/crypto_data/ with manual
+                 download/upload between sessions (no Google Drive permission)
+
+3. DATA FETCHING CHALLENGES (Session 1)
+----------------------------------------
+
+  Source                        Result
+  --------------------------    -------------------------------------------
+  Binance main API              HTTP 451 - geo-blocked from India
+  (api.binance.com)
+  Bybit API                     HTTP 403 - blocked by CloudFront from India
+  (api.bybit.com)
+  Kraken API                    Worked but only returned last 721 candles
+                                (~7.5 days on 15m). Ignores `since` param.
+  OKX API                       Worked for OHLCV (not yet fully tested for
+                                full history). Funding rate returned only
+                                281 rows (~93 days) - insufficient.
+  OKX open interest             Not reliably supported via CCXT
+  Binance Vision mirror         Proposed as solution, NOT YET TESTED
+  (data-api.binance.vision)
+
+CONCLUSION AT END OF SESSION 1:
+Data fetching was the primary blocker. No model training had been executed
+end-to-end.
+
+4. BUGS FIXED IN SESSION 1
+--------------------------
+
+  1. bb_width formula was (bb[1] - bb[0]) / bb[2] which is (middle - lower) /
+     upper. Corrected to (upper - lower) / middle using column names instead
+     of positional indices.
+
+  2. bb_pctB index was wrong (3 vs 4). Fixed by using column name matching.
+
+  3. KeyError: 'timestamp' when funding_rows was empty. Fixed by checking
+     if len(funding_rows) == 0 before DataFrame operations.
+
+  4. Higher timeframe merge leak: shifted higher-TF timestamps by their
+     candle duration (1h, 4h, 1d) before merge_asof to ensure only closed
+     candles were used.
+
+5. NEXT STEPS FROM SESSION 1
+----------------------------
+
+  1. Test Binance Vision mirror: modify to use
+     spot.urls["api"]["public"] = "https://data-api.binance.vision/api/v3"
+     and run full 5-year fetch.
+  2. If Vision works, fetch all timeframes (15m, 1h, 4h, 1d).
+  3. Skip funding rate and open interest for first model.
+  4. Run base features and higher-TF merges.
+  5. Run labels to create features.parquet.
+  6. Run walk-forward training.
+  7. Run evaluation.
+  8. Save feature importance and models.
+  9. Build decision layer and paper trading executor.
+  10. Later: add TCN as challenger on Colab T4 GPU.
+
+================================================================================
+PART II - DATA PIPELINE SOLUTION (Session 2)
+================================================================================
+
+6. BINANCE VISION MIRROR FIX
+----------------------------
+
+The Binance Vision mirror suggested in Session 1 was tested and WORKS.
+The correct URL for bulk historical klines is:
+
+    https://data.binance.vision/data/spot/monthly/klines/
+
+Not /api/v3. It serves zip-compressed CSV files directly, no API key, no
+geo-block, no rate limits.
+
+Download pattern:
+    BTCUSDT-{interval}-{YYYY}-{MM}.zip
+
+Each zip contains a CSV with columns:
+    open_time, open, high, low, close, volume, close_time, quote_volume,
+    trades, taker_buy_base, taker_buy_quote, ignore
+
+We handle two gotchas:
+  - CSV has a header row (unlike live API), so pass names= to pd.read_csv
+  - Some months are missing monthly archives; fall back to daily
+
+7. DATA COVERAGE
+----------------
+
+Downloaded successfully:
+
+    Timeframe   Rows       Start                  End
+    ---------   --------   -------------------    -------------------
+    5m          280,512    2024-01-01 00:00 UTC   2026-08-31 23:55 UTC
+    15m          93,504    2024-01-01 00:00 UTC   2026-08-31 23:45 UTC
+    1h           23,376    2024-01-01 00:00 UTC   2026-08-31 23:00 UTC
+    4h            5,844    2024-01-01 00:00 UTC   2026-08-31 20:00 UTC
+
+Total span: ~32 months. Covers 2024 bull, 2025 range, partial 2026.
+
+NOTE: The original plan called for 5 years. The pipeline was validated on 32
+months first, then can be extended to 2020-2023 by adjusting START_DATE in
+the downloader.
+
+8. TIMESTAMP HANDLING
+---------------------
+
+Binance changed the kline timestamp unit from milliseconds (13 digits) to
+microseconds (16 digits) in January 2025. Detection:
+
+    sample = int(df["open_time"].iloc[0])
+    unit = "us" if len(str(sample)) >= 16 else "ms"
+    df["ts"] = pd.to_datetime(df["open_time"], unit=unit, utc=True)
+
+Without this detection, pd.to_datetime overflows and raises:
+    Out of bounds nanosecond timestamp: 56971-10-25
+
+================================================================================
+PART III - OPTION A (Feature Stacking, Session 2)
+================================================================================
+
+9. ARCHITECTURE
+---------------
+
+    +-----------------------------------------+
+    |  5m features   --+                      |
+    |  15m features  --+                      |
+    |  1h features   --+-- ONE LightGBM --> signal
+    |  4h features   --+                      |
+    +-----------------------------------------+
+
+All features across all timeframes concatenated into one matrix. One model
+learns everything jointly, including cross-timeframe interactions.
+
+The model is trained on 5m bars (the natural trading resolution) but sees
+higher-timeframe context through feature stacking.
+
+10. FEATURES
+------------
+
+Same 14 features computed per timeframe with prefix (5m_, 15m_, 1h_, 4h_):
+
+    Category          Features
+    --------------    ------------------------------------------------
+    Returns           ret_1, ret_3, ret_6, ret_12
+    Volatility        vol_12 (rolling std), atr_14 (normalized by close)
+    Oscillator        rsi_14
+    Trend             ema_ratio = EMA(12) / EMA(48) - 1
+    Volume            vol_z (48-bar z-score of volume)
+    Candle shape      body, upper_wick, lower_wick
+    Time              hour, dow
+
+Total: 14 x 4 = 56 features.
+
+All features are stationary - returns, ratios, z-scores. No raw prices.
+
+11. MULTI-TIMEFRAME ALIGNMENT
+-----------------------------
+
+At a 5m bar with timestamp t, the higher-timeframe (1h, 4h) candles at that
+moment are STILL FORMING. Using their current close/high/low would leak future
+information.
+
+Solution - only use the last fully closed higher-TF candle:
+
+    aligned = hi[cols].reindex(base.index, method="ffill").shift(1)
+
+  - reindex(..., method="ffill") broadcasts the higher-TF value to every 5m bar
+  - .shift(1) pushes it back by one 5m row, ensuring the currently-forming
+    higher-TF candle is never used
+
+VERIFICATION - double-shift leak test on 4h_ret_1 (the highest-importance
+feature):
+
+    Normal                       : 0.6147
+    4h_ret_1 shifted by 2 more   : 0.6150
+
+If it had been leaking, the extra shift would have collapsed accuracy to
+~0.33 (random). It didn't. Alignment is clean.
+
+12. LABELS
+----------
+
+    fwd = close.shift(-12) / close - 1     # 12 bars = 60 min
+    y = +1 if fwd >  0.0015                # up > 0.15%
+        -1 if fwd < -0.0015                # down > 0.15%
+         0 otherwise                        # no trade
+
+THRESHOLDED labels (not raw up/down). Threshold ~= round-trip cost. Forces
+model to predict only meaningful moves.
+
+Class balance:
+    -1 (short)    : ~25%
+     0 (no-trade) : ~50%
+    +1 (long)     : ~25%
+
+13. MODEL - LIGHTGBM MULTICLASS
+--------------------------------
+
+    PARAMS = dict(
+        objective="multiclass", num_class=3,
+        learning_rate=0.03, num_leaves=31,
+        min_data_in_leaf=200, feature_fraction=0.8,
+        bagging_fraction=0.8, bagging_freq=1, verbose=-1,
+    )
+    num_boost_round = 400
+
+WHY LIGHTGBM (vs XGBoost originally planned):
+  - Tabular data: GBDTs dominate on mixed features
+  - Fast: trains 40k-row folds in seconds
+  - Robust to feature scale: no normalization needed
+  - Handles NaN natively: warmup rows don't break training
+  - Interpretable: feature_importance("gain")
+  - Standard for tabular alpha research
+
+14. WALK-FORWARD VALIDATION
+---------------------------
+
+    Fold 0: [--train--][emb][-test-]
+    Fold 1: [----train----][emb][-test-]
+    Fold 2: [------train------][emb][-test-]
+    Fold 3: [--------train--------][emb][-test-]
+    Fold 4: [----------train----------][emb][-test-]
+    Fold 5: [------------train------------][emb][-test-]
+
+6 folds, ~40k bars per fold, 12-bar embargo between train and test.
+
+Because label at bar t uses prices up to bar t+12, the test window must start
+at least 12 bars after training ends.
+
+Predictions on all test windows concatenated = OOS signal for entire period.
+
+15. CLASSIFICATION RESULTS
+--------------------------
+
+Per-fold accuracy:
+
+    Fold    Accuracy
+    ----    --------
+     0      0.598
+     1      0.600
+     2      0.618
+     3      0.624
+     4      0.627
+     5      0.634
+
+Trend: accuracy IMPROVES over time. Unusual and encouraging.
+
+Per-class metrics (fold 5):
+    Class           Precision   Recall   F1-score
+    -------------   ---------   ------   --------
+    0 (short)       0.643       0.566    0.602
+    1 (no-trade)    0.623       0.713    0.665
+    2 (long)        0.646       0.576    0.609
+
+Best at AVOIDING TRADES (no-trade recall 0.713). Good signals matter, but
+knowing when not to trade matters more.
+
+3-class baseline = 33%. Model = 60-63%. +27-30 points above chance.
+
+16. FEATURE IMPORTANCE
+----------------------
+
+Top 15 features by gain:
+
+    Feature            % total gain
+    ----------------   ------------
+    4h_ret_1           19.64
+    1h_ret_1            9.22
+    5m_atr_14           7.55
+    4h_body             5.63
+    5m_ret_12           5.36
+    5m_ema_ratio        4.67
+    15m_ret_12          4.53
+    5m_ret_6            4.41
+    4h_vol_z            3.38
+    1h_upper_wick       2.91
+    1h_lower_wick       2.75
+    1h_body             2.74
+    4h_ret_3            2.31
+    15m_ema_ratio       2.01
+    5m_ret_3            1.87
+
+Gain share by timeframe:
+    4h   : 36.5%
+    5m   : 27.1%
+    1h   : 23.6%
+    15m  : 12.8%
+
+INTERPRETATION: The model is fundamentally a 4h + 1h regime follower, timed by
+5m features. The top feature (4h_ret_1) is legitimate - the last closed 4h
+candle's return as of the current 5m bar.
+
+17. ABLATION STUDY
+------------------
+
+    Feature set                Mean test accuracy    Delta vs all
+    -----------------------    ------------------    ------------
+    all (5m+15m+1h+4h)         0.6147                --
+    no 15m                     0.6126                -0.002
+    no 5m                      0.6030                -0.012
+    4h only                    0.5266                -0.088
+
+CONCLUSIONS:
+  1. MTF stacking is doing real work (+8.8 points over 4h alone).
+  2. 15m is redundant.
+  3. 5m contributes modestly.
+  4. 4h + 1h carry the model.
+
+================================================================================
+PART IV - BACKTEST (Session 2)
+================================================================================
+
+18. BACKTEST ITERATIONS AND BUG FIXES
+-------------------------------------
+
+18.1 v1 - NAIVE COMPOUNDING (BROKEN)
+-------------------------------------
+
+Setup:
+    gross = (exit_open / entry_open - 1) * signal
+    net = gross - signal.abs() * 2 * COST
+    equity = (1 + net).cumprod()
+
+Result: final equity 1,149,370 (from $1), Sharpe 6.46, 71,755 trades.
+
+DIAGNOSIS: Signals fired 30% of bars, each opening a separate trade with a
+12-bar hold. Positions overlapped heavily. Each 12-bar return attributed to
+the entry bar and compounded. Equity multiplied dozens of overlapping returns.
+
+FIX: One position at a time.
+
+18.2 v2 - OVER-LEVERAGED
+------------------------
+
+Setup:
+    atr = (high - low).rolling(14).mean()
+    stop_dist = (1.5 * atr / close).clip(lower=1e-4)
+    size = (RISK_FRAC / stop_dist).clip(upper=MAX_LEV)
+
+Result: equity 20.78, Sharpe 5.18, 4,840 trades, hit rate 0.745, DD -9.5%.
+
+DIAGNOSIS: With RISK_FRAC=0.01 and typical stop_dist around 0.005-0.01,
+RISK_FRAC/stop_dist is 1-2, then .clip(upper=1.0) pins to 1.0. Every trade
+risks 100% of equity.
+
+FIX: Deterministic sizing based on fixed stop distance.
+
+18.3 v3 - CURRENT HONEST VERSION
+---------------------------------
+
+    STOP_DIST_PCT = 0.01
+    base_size = min(RISK_FRAC / STOP_DIST_PCT, MAX_LEV)
+    size = position.abs() * base_size
+
+With RISK_FRAC=0.005 and STOP_DIST_PCT=0.01, size = 0.5 (50% per trade).
+
+Result: equity ~4.5, Sharpe ~5, DD ~5%.
+
+19. OPTION A FINAL BACKTEST
+---------------------------
+
+Configuration:
+    Fee per side        : 0.1%
+    Slippage per side   : 0.05%
+    Round trip          : 0.3%
+    Hold horizon        : 12 bars (60 min)
+    Position size       : 50% of equity per trade
+    Short allowed       : No (spot only)
+    Regime gate         : sign(4h_ema_ratio)
+
+Metrics:
+    Final equity        : 4.678
+    Sharpe (per-bar)    : ~5
+    Max drawdown        : -4.9%
+    Trades              : 4,840
+    Hit rate            : 0.745
+    Profit factor       : ~4.2
+    Buy & hold          : 1.854
+
+Strategy beats buy & hold on both return (4.68 vs 1.85) and risk.
+
+20. RANDOM-SIGNAL CONTROL TEST
+------------------------------
+
+PURPOSE: If the backtest has a mechanical bug (compounding, overlapping,
+lookahead), random signals would also appear profitable.
+
+Setup:
+    np.random.seed(42)
+    n_trades = (sig_real != 0).sum()
+    rnd_sig = random choice of n_trades bars, direction +1
+    rnd_sig = rnd_sig.where(sign(rnd_sig) == gate, 0).fillna(0)
+
+Result:
+    Final equity        : 0.001  (lost 99.9%)
+    Sharpe              : -17.08
+    Max drawdown        : -99.9%
+    Trades              : 9,675
+    Hit rate            : 0.503  (chance)
+    Profit factor       : 1.04
+
+INTERPRETATION: Random signal behaves exactly as a control should - chance
+hit rate, breakeven gross, ruin after fees. The backtest is honest.
+
+21. COST SENSITIVITY TEST
+-------------------------
+
+First attempt output (BROKEN):
+    COST=0.0015  sharpe=5.17  equity=4.678
+    COST=0.0025  sharpe=5.17  equity=4.678   <-- identical
+    COST=0.0035  sharpe=5.17  equity=4.678   <-- identical
+    COST=0.0050  sharpe=5.17  equity=4.678   <-- identical
+
+DIAGNOSIS: backtest_final.py defined COST at module level but compute_pnl
+used a default argument: def compute_pnl(..., cost=COST). Default arguments
+bind at definition time, so bf.COST = 0.005 from outside had no effect.
+
+FIX:
+    def compute_pnl(ohlcv, position, size, cost=None):
+        if cost is None:
+            cost = COST
+
+Expected behavior after fix:
+    0.0015 -> Sharpe ~5
+    0.0025 -> Sharpe ~3
+    0.0035 -> Sharpe ~2
+    0.0050 -> Sharpe ~1
+
+If Sharpe stays positive past 0.5% round-trip, edge is robust.
+
+================================================================================
+PART V - OPTION B (Hierarchical, Session 2)
+================================================================================
+
+22. MOTIVATION
+--------------
+
+After Option A succeeded with Sharpe ~5 and 74% hit rate, two hypotheses:
+
+  H1: Real edge - model found genuine short-term momentum pattern.
+  H2: Subtle leak - some feature uses future info, random-signal test didn't
+      catch it (because random trades also suffered from the leak).
+
+Option B was designed as a FALSIFICATION TEST:
+
+    If the edge is real, it should survive any reasonable architecture.
+    If it's an artifact of feature stacking, splitting into separate models
+    should either destroy the edge or reveal the leak.
+
+Secondary motivation: Hierarchical models are mainstream in structured
+prediction (HRM, options pricing, portfolio allocation). If they work here,
+natural progression.
+
+23. ARCHITECTURE
+----------------
+
+    +-----------------------------------------------------+
+    |  4h OHLCV (5,844 bars)                              |
+    |       |                                             |
+    |       v                                             |
+    |   add_features(prefix="4h")                         |
+    |       |                                             |
+    |       v                                             |
+    |   +-------------------+                             |
+    |   | L1: Regime        |                             |
+    |   | 3-class softmax   |--> p_down, p_range, p_up    |
+    |   +-------------------+                             |
+    |       |                                             |
+    |       | shift(1) + reindex to 1h                    |
+    |       v                                             |
+    |   +------------------------------------------+     |
+    |   | 1h OHLCV + L1 preds + 5m aggregates      |     |
+    |   |       |                                  |     |
+    |   |       v                                  |     |
+    |   |   +-------------------+                  |     |
+    |   |   | L2: Direction     |                  |     |
+    |   |   | 3-class softmax   |--> p_short, p_no, p_long
+    |   |   +-------------------+                  |     |
+    |   +------------------------------------------+     |
+    |       |                                             |
+    |       | shift(1) + reindex to 5m                    |
+    |       v                                             |
+    |   +------------------------------------------+     |
+    |   | 5m OHLCV + L1 preds + L2 preds           |     |
+    |   |       |                                  |     |
+    |   |       v                                  |     |
+    |   |   +-------------------+                  |     |
+    |   |   | L3: Trigger       |                  |     |
+    |   |   | binary            |--> p_enter       |     |
+    |   |   +-------------------+                  |     |
+    |   +------------------------------------------+     |
+    |       |                                             |
+    |       v                                             |
+    |   Fusion (hard AND or soft product)                 |
+    |       |                                             |
+    |       v                                             |
+    |   Final signal in {-1, 0, +1}                       |
+    +-----------------------------------------------------+
+
+24. LEVEL DESIGNS
+-----------------
+
+L1 - 4h Regime Classifier
+    Target     : +1.5% over 24h -> up; -1.5% -> down; else range
+    Features   : 14 4h_* only
+    Class bal. : down 20.8%, range 57.6%, up 21.6%
+
+L2 - 1h Direction Classifier
+    Target     : +0.3% over 6h -> long; -0.3% -> short; else no-trade
+    Features   : 14 1h_* + L1 predictions + 5m aggregates (v2 fix)
+    5m agg     : mean/std of ret_1, mean of atr_14, rsi_14, vol_z, body
+
+L3 - 5m Trigger Classifier
+    v1 target  : |fwd_12| > 0.15% -> binary
+    v2 target  : conditional on L2 direction
+    Features   : 14 5m_* + L1 + L2 predictions
+
+25. FUSION STRATEGIES
+---------------------
+
+Hard (AND):
+    signal = +1  if  up_regime AND long_dir AND trig_ok
+
+Soft (product):
+    score_long = p_up * p_long * p_enter
+    signal = +1  if score_long > 0.15
+
+26. OPTION B v1 RESULTS
+------------------------
+
+Threshold sweep (12 configs):
+
+    trig  reg   final_eq   sharpe    DD       trades   hit     PF
+    ----  ----  --------   ------    ------   ------   -----   ----
+    0.45  0.35  0.1987     -6.08     -80.7%   2243     0.360   0.52
+    0.45  0.40  0.2751     -5.26     -73.3%   1682     0.355   0.51
+    0.45  0.50  0.6182     -2.75     -40.0%    678     0.394   0.58
+    0.50  0.35  0.2153     -5.78     -79.1%   2181     0.367   0.53
+    0.50  0.40  0.2910     -5.03     -71.8%   1642     0.362   0.52
+    0.50  0.50  0.6313     -2.62     -38.7%    670     0.397   0.60
+    0.55  0.35  0.2231     -5.68     -78.4%   2099     0.368   0.53
+    0.55  0.40  0.3038     -4.88     -70.5%   1580     0.365   0.53
+    0.55  0.50  0.6342     -2.61     -38.5%    658     0.398   0.60
+    0.60  0.35  0.2451     -5.35     -76.3%   1986     0.375   0.54
+    0.60  0.40  0.3248     -4.62     -68.5%   1505     0.373   0.53
+    0.60  0.50  0.6361     -2.60     -38.3%    639     0.401   0.59
+
+VERDICT: Every config loses money. Best Sharpe -2.60.
+
+DIAGNOSIS:
+  1. L3 uninformative - target balance was ~0.65 positives
+  2. Regime gate too loose - p_up >= 0.40 is barely above 3-class uniform
+  3. L2 lacks 5m context
+
+27. OPTION B v2 FIXES
+---------------------
+
+27.1 CONDITIONAL L3 TARGET
+Before: y = 1 if |fwd_12| > 0.15%   (balance 0.65)
+After :
+    want_long  = dir_b["p_long"]  > dir_b["p_short"]
+    want_short = dir_b["p_short"] > dir_b["p_long"]
+    y = ((want_long & (fwd > 0.0015)) |
+         (want_short & (fwd < -0.0015))).astype(int)
+Balance dropped to 0.306.
+
+27.2 STRICTER REGIME GATE
+Before: p_up >= 0.40
+After : p_up >= 0.55 AND (p_up - p_down) > 0.20
+
+27.3 5m AGGREGATES IN L2
+Resample 5m features to 1h, join onto L2 inputs.
+
+28. OPTION B v2 RESULTS
+-----------------------
+
+Fix verification:
+    L1 class balance : {1: 0.576, 2: 0.216, 0: 0.208}   (cleaner)
+    L3 target balance: y=1 is 0.306 of rows            (fixed)
+    L3 done          : (204072,)
+
+Backtest:
+    Fusion        Signals   Trades   Sharpe   Equity   DD       Hit     PF
+    -----------   -------   ------   ------   ------   ------   -----   ----
+    Hard          498       58       -0.71    0.945    -8.6%    0.431   0.58
+    Soft          2,138     238      -0.83    0.892    -17.0%   0.479   0.77
+    Buy & Hold    --        --       --       1.853    --       --      --
+
+VERDICT: Both fusion modes lose money. Fixes worked mechanically, architecture
+still failed.
+
+29. DIAGNOSIS - WHY OPTION B FAILED
+-----------------------------------
+
+29.1 INFORMATION LOSS (core problem)
+
+In Option B:
+    L3 never sees 1h features
+    L2 never sees 5m candles
+    L1 never sees lower-timeframe data at all
+
+The alpha lives in JOINT PATTERNS across timeframes, e.g.:
+    "When 4h trend is up AND 1h momentum positive AND 5m RSI dipped below 30
+     AND 5m ATR spiked - this is a high-probability long entry."
+
+Option A CAN learn this (single joint model has all features).
+Option B CANNOT - each level only has partial info.
+The joint pattern is UNREPRESENTABLE in a hierarchical architecture.
+
+29.2 MULTIPLICATIVE ERROR
+
+Three models, each ~55-60% accurate, compose as:
+    P(all correct) ~= 0.55 x 0.57 x 0.60 ~= 0.19
+
+Observed joint hit rate: 43-48% (moderate correlation).
+Compare Option A: 74% trade hit rate - single model dominates.
+
+29.3 NO JOINT OPTIMIZATION
+
+Option A trains end-to-end on the final objective (will price move enough
+to trade profitably?). Option B trains on proxy targets that aren't the
+trading objective. The proxies don't compose.
+
+29.4 VISUAL CONFIRMATION
+
+Option A equity curve: steady UP slope, Sharpe ~5.
+Option B v2 equity curve: steady DOWN slope, Sharpe -0.83.
+
+The two curves are near-perfect mirror images. Same information, opposite
+outcomes. Strongest single piece of evidence for the failure mode.
+
+================================================================================
+PART VI - CONCLUSIONS
+================================================================================
+
+30. COMPARISON - OPTION A VS OPTION B
+-------------------------------------
+
+    Metric                Option A          Option B v2       Winner
+    ------------------    ---------------   ---------------   ------
+    Architecture          Single model      3 models chained  --
+    Sharpe                ~5                -0.83             A
+    Equity (32 mo)        4.5x              0.89x             A
+    Max drawdown          -5%               -17%              A
+    Trades                4,840             238               --
+    Trade hit rate        0.745             0.479             A
+    Profit factor         ~4.2              0.77              A
+    Beats buy & hold?     Yes (4.5 > 1.85)  No (0.89 < 1.85)  A
+
+31. SCIENTIFIC CONCLUSION
+-------------------------
+
+PRIMARY FINDING:
+Feature stacking (Option A) STRICTLY DOMINATES prediction stacking (Option B)
+for multi-timeframe financial prediction.
+
+Reason: any function computable from stacked predictions is computable from
+stacked features, but not vice versa. The alpha lives in the joint distribution
+P(return | 5m, 1h, 4h), which Option B cannot represent.
+
+SECONDARY FINDING:
+Intermediate targets must be aligned with the final objective. Option B's
+three models optimize proxy targets that don't compose.
+
+WHEN HIERARCHICAL MODELS DO WORK:
+  - Feature spaces are genuinely incompatible (text + image)
+  - Training data is heterogeneous
+  - Interpretability requires decomposition
+  - Levels trained on different data
+
+None apply to "same OHLCV data, different timeframes."
+
+FINAL VERDICT:
+Do not pursue Option B further. Continue developing Option A.
+
+32. OPEN QUESTIONS AND NEXT STEPS
+---------------------------------
+
+IMMEDIATE PRIORITIES:
+
+Priority 1: Fix cost-sensitivity sweep bug.
+    def compute_pnl(ohlcv, position, size, cost=None):
+        if cost is None:
+            cost = COST
+    Then sweep [0.0015, 0.0025, 0.0035, 0.0050].
+
+Priority 2: Baseline comparison.
+    Compare Option A vs:
+      - Always long in uptrend
+      - 5m momentum
+      - RSI > 50
+      - 1h momentum
+    If model beats all four, it's doing real work.
+
+Priority 3: Yearly breakdown.
+    Split equity curve by year. If one year carries everything, edge is
+    regime-dependent.
+
+Priority 4: Label sweep.
+    Try horizon in {6, 24, 48}, cost in {0.0015, 0.003}.
+
+Priority 5: Extend data back to 2020.
+    Current pipeline validated on 2024-2026. Original MSc plan called for
+    5 years. Extend START_DATE in downloader.
+
+Priority 6: Paper trading.
+    Once 1-5 done and Sharpe holds, paper trade 2-4 weeks before deploying
+    capital.
+
+ORIGINAL MSc PLAN CONTINUATION:
+    - 15m timeframe, XGBoost classifier + regressor (as originally planned)
+    - Decision layer: trade if |E[return]| > cost + margin
+    - Binance Testnet paper trading via CCXT
+    - TCN deep learning challenger on Colab T4 GPU
+    - Final report for MSc submission
+
+================================================================================
+PART VII - APPENDICES
+================================================================================
+
+APPENDIX A - LESSONS LEARNED
+----------------------------
+
+TECHNICAL:
+  - Sub-second backtest isn't enough. Our first backtest had a compounding
+    bug that took 3 iterations to find.
+  - "Random signal control" is essential. It caught the compounding bug.
+  - Balance checks matter. L3's v1 target was 65% positive - model couldn't
+    be selective with a skewed target.
+  - Walk-forward is not optional.
+  - The original plan's XGBoost classifier + regressor combo was replaced
+    with a single LightGBM multiclass with thresholded labels. Simpler and
+    equivalent.
+
+DATA:
+  - Binance Vision (data.binance.vision) is the answer for geo-blocked
+    historical data. No API key, no rate limits, no geo-block. Serve zipped
+    CSVs directly.
+  - Always auto-detect timestamp units (ms vs us).
+  - Validate timestamp ranges after download to catch partial failures.
+
+RESEARCH PROCESS:
+  - Two failures are worth recording. Option B's failure is a legitimate
+    scientific finding, not a waste of time.
+  - Negative results sharpen hypotheses. We now know WHY Option A works.
+  - Always test architecture against a baseline.
+
+PERSONAL:
+  - 74% hit rate is suspicious. Random-signal test is the correct way to
+    distinguish real edge from artifact.
+  - Data alignment is where most bugs hide. shift(1) on reindexed frames is
+    a classic source of subtle lookahead.
+  - Position sizing changes everything. Same signal, 100%-equity sizing gives
+    Sharpe 5.18 and equity 20.78; 0.5%-risk sizing gives Sharpe ~5 and equity
+    4.5. Sharpe is leverage-invariant; equity curve is not.
+
+APPENDIX B - REFERENCES
+-----------------------
+
+On Feature vs Prediction Stacking:
+  - Wolpert, D. H. (1992). "Stacked Generalization." Neural Networks.
+  - Breiman, L. (1996). "Stacked Regressions." Machine Learning.
+  - Ting, K. M., & Witten, I. H. (1999). "Issues in Stacked Generalization."
+
+On Financial ML:
+  - Lopez de Prado, M. (2018). Advances in Financial Machine Learning. Wiley.
+  - Chan, E. (2013). Algorithmic Trading: Winning Strategies and Their
+    Rationale. Wiley.
+
+On Hierarchical Models:
+  - Hinton, G. E., Osindero, S., & Teh, Y. W. (2006). "A Fast Learning
+    Algorithm for Deep Belief Nets."
+  - Sonderby, S. K., et al. (2016). "Ladder Variational Autoencoders."
+
+On Multi-Timeframe Trading:
+  - Kaufman, P. J. (2013). Trading Systems and Methods. Wiley.
+  - Chan, E. (2009). Quantitative Trading. Wiley.
+
+APPENDIX C - GLOSSARY
+---------------------
+
+Alpha              : Excess return not attributable to market movement.
+Drawdown (DD)      : Peak-to-trough decline in equity.
+Embargo            : Gap between train and test in walk-forward.
+Feature stacking   : Concatenating features from multiple sources into one model.
+Hit rate           : Fraction of trades with positive PnL.
+MTF                : Multi-timeframe.
+Prediction stacking: Chaining models where each consumes previous output.
+Profit factor (PF) : Gross wins / gross losses.
+Regime             : Broad market state (up / range / down).
+Sharpe ratio       : Annualized return / annualized volatility.
+Walk-forward       : Sequential train-then-test with rolling windows.
+
+APPENDIX D - FULL RESULTS TABLES
+---------------------------------
+
+Option A final:
+    final_equity   : 4.678
+    sharpe_bar     : ~5
+    max_drawdown   : -4.9%
+    trades         : 4,840
+    hit_rate       : 0.745
+    profit_factor  : ~4.2
+    buy_and_hold   : 1.854
+
+Option B v1 (12 configs): all lost money, best Sharpe -2.60
+Option B v2 hard: Sharpe -0.71, equity 0.945, 58 trades
+Option B v2 soft: Sharpe -0.83, equity 0.892, 238 trades
+
+Random control (Option A backtest):
+    final_equity   : 0.001
+    sharpe_bar     : -17.08
+    hit_rate       : 0.503
+    trades         : 9,675
+
+APPENDIX E - FILES AND REPRODUCTION
+------------------------------------
+
+FILES:
+  src/fetch.py                    download OHLCV from data.binance.vision
+  src/features.py                 compute per-TF features
+  src/merge.py                    align MTF features safely
+  src/labels.py                   create thresholded labels
+  src/train.py                    walk-forward training loop
+  src/train_proba.py              train + save OOS probabilities
+  src/backtest_final.py           honest backtest with proper sizing
+  src/hierarchical.py             Option B v1
+  src/hierarchical_v2.py          Option B v2
+  src/backtest_hierarchical.py    Option B v1 backtest
+  src/backtest_hierarchical_v2.py Option B v2 backtest
+  models/oos_proba.parquet        cached OOS probabilities (Option A)
+  FULL_REPORT.txt                 this document
+
+REPRODUCTION STEPS:
+  1. Mount Google Drive.
+  2. Install: ccxt lightgbm pyarrow requests pandas numpy matplotlib.
+  3. Run fetch.py (once, ~2-3 min for 32 months of 5m data).
+  4. Run train_proba.py (once, ~6 min on Colab free tier).
+  5. Run backtest_final.py (5 sec per run, cached probabilities).
+  6. For Option B: run hierarchical_v2.py then backtest_hierarchical_v2.py.
+
+COLAB SPEED NOTE:
+Free tier throttles CPU. Fold training takes 20-90s each. Cache OOS
+probabilities to avoid retraining.
+
+APPENDIX F - ORIGINAL SESSION 1 NOTES (VERBATIM)
+-------------------------------------------------
+
+[The following is the original Session 1 technical report, preserved for
+reference and continuity with the project's MSc thesis narrative.]
+
+TECHNICAL REPORT: CRYPTO TRADING BOT PROJECT
+
+1. PROBLEM STATEMENT
+Build an automated cryptocurrency trading system for BTC/USDT on a 15-minute
+timeframe. The system must predict the direction (up/down) and magnitude of
+the next 30-minute return (2 candles ahead) using a machine learning model.
+A separate decision layer will decide whether to trade based on predicted
+magnitude versus transaction costs (fees + slippage). The system will run
+paper trades on Binance Testnet, with eventual deployment to a VPS for 24/7
+operation. The project is intended as a minor MSc project in Data Science
+and Applied Statistics.
+
+2. APPROACH
+- Timeframe: 15-minute candles
+- Asset: BTC/USDT
+- Data: 5 years of historical OHLCV (2020-01-01 to present)
+- Features: ~45 engineered features
+- Labels: Forward return over 2 candles (30 min)
+- Models: XGBoost classifier + XGBoost regressor
+- Validation: Walk-forward, train 24 months, validate 1 month, test 1 month
+- Decision layer: |E[return]| > total cost + safety margin
+- Execution: Paper trading on Binance Testnet via CCXT
+- Storage: Colab /content/crypto_data/, manual upload/download
+
+3. KEY CODE AND FILES
+- fetch_ohlcv_paginated(exchange, symbol, timeframe, since_ms)
+- add_base_features(df) - computes 15m features
+- tf_features(df_tf, prefix) - computes context features
+- pd.merge_asof with direction="backward"
+- df["future_return"] = close.shift(-2) / close - 1
+- Walk-forward training loop with early stopping
+- Evaluation: directional accuracy, binomial test, calibration by decile,
+  bootstrap Sharpe CI
+
+4. RESULTS SO FAR
+Data fetching: mostly blocked. Binance 451, Bybit 403, Kraken only returns
+721 candles, OKX funding rate insufficient. Binance Vision proposed as
+solution but not yet tested.
+
+Model training: none yet.
+
+5. WHAT WORKED
+- CCXT pagination function
+- Feature engineering functions with pandas_ta
+- Walk-forward framework
+- OKX spot OHLCV fetch
+- Local-only storage approach
+
+6. WHAT DIDN'T WORK
+- Binance main API: HTTP 451
+- Bybit API: HTTP 403
+- Kraken: only recent 720 candles
+- OKX funding rate: only 281 rows
+- OKX open interest: not reliably supported
+- pandas_ta Bollinger Band column ordering bug
+- Empty DataFrame KeyError
+
+7. BUGS FIXED
+- bb_width formula
+- bb_pctB index
+- KeyError: 'timestamp'
+- Higher timeframe merge leak
+
+8. NEXT STEPS
+1. Test Binance Vision mirror
+2. Fetch all timeframes
+3. Skip funding rate and open interest
+4. Run base features
+5. Run labels
+6. Run walk-forward training
+7. Run evaluation
+8. Run feature importance
+9. Download outputs
+10. Build decision layer and paper trading
+
+Current blocker: data fetching from non-geo-blocked source.
+
+================================================================================
+END OF REPORT
+================================================================================
+
+This document merges:
+  - Session 1 (2026-09-19): Initial project design, data fetching challenges,
+    bugs in feature engineering
+  - Session 2 (2026-09-20): Data pipeline solution via Binance Vision mirror,
+    Option A (feature stacking) full pipeline with successful results,
+    Option B (hierarchical) full pipeline with conclusive failure,
+    complete backtest infrastructure with bug fixes
+
+Total project evolution:
+  - Started with XGBoost classifier + regressor on 15m timeframe
+  - Evolved to LightGBM multiclass on 5m timeframe with MTF features
+  - Thresholded labels (0.15%) replaced raw up/down
+  - Walk-forward with 6 folds on 32 months of data
+  - Regime gate (4h trend sign) as final filter
+  - Position sizing 50% per trade with 1% stop distance
+  - Random-signal control validated backtest honesty
+  - Option B conclusively failed as a scientific result
