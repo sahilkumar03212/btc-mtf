@@ -71,3 +71,13 @@ def notify_daily_summary(daily_pnl, daily_trades, balance):
         f"Balance: \\${balance:,.2f}"
     )
     send_telegram(msg)
+
+
+def notify_hold(price, p_up, reason):
+    """Send a status update when the bot decides to HOLD."""
+    msg = (
+        f"⏸ *HOLD* @ \\${price:,.2f}\n"
+        f"P(up): {p_up:.3f}\n"
+        f"Reason: {reason}"
+    )
+    send_telegram(msg)

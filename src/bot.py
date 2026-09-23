@@ -24,7 +24,7 @@ from decision import decide
 from executor import Executor
 from position_manager import PositionManager
 from trade_logger import log_decision, log_trade
-from notifier import notify_bot_started, notify_trade_opened, notify_trade_closed, notify_daily_summary
+from notifier import notify_bot_started, notify_trade_opened, notify_trade_closed, notify_daily_summary, notify_hold
 
 
 def print_banner():
@@ -112,6 +112,9 @@ def run_one_cycle(exchange, predictor, executor, pm):
 
     # Log every decision
     log_decision(bar_ts, current_price, p_up, exp_return, decision_result)
+    
+    if action == "HOLD":
+        notify_hold(current_price, p_up, decision_result["reason"])
 
     # ── 7. Execute trade ──
     if action == "BUY":
